@@ -16,8 +16,9 @@ def home():
     return {"message": "API đang chạy! Truy cập /now-playing để lấy tên bài hát."}
 
 @app.get("/now-playing")
-def get_now_playing(station: str = "au.cherry"):
-    url = f"https://scraper2.onlineradiobox.com/{station}?l=0"
+def get_now_playing(station: str = "au.cherry", l: int = 0):
+    # Truyền tham số l vào URL (mặc định là 0 nếu gọi lần đầu)
+    url = f"https://scraper2.onlineradiobox.com/{station}?l={l}"
     try:
         res = requests.get(url, headers=HEADERS, timeout=10)
         if res.status_code == 200:
@@ -25,6 +26,7 @@ def get_now_playing(station: str = "au.cherry"):
             return {
                 "success": True,
                 "station": station,
+                "updated": data.get("updated"), # Trả về timestamp để dùng cho lần gọi tiếp theo
                 "title": data.get("title"),
                 "artist": data.get("iArtist"),
                 "song": data.get("iName"),
