@@ -50,9 +50,11 @@ async def get_now_playing(station: str = "au.cherry", l: int = 0):
             
     return {"success": False, "error": "Không lấy được dữ liệu"}
 
-# 2. Generator đẩy dữ liệu liên tục cho SSE
+# 2. Generator phát stream SSE liên tục
 async def song_stream_generator(station: str):
     l_param = 0
+    last_updated = None  # Lưu vết timestamp để lọc trùng bài hát
+
     async with httpx.AsyncClient(timeout=60.0) as client:
         while True:
             url = f"https://scraper2.onlineradiobox.com/{station}?l={l_param}"
@@ -60,16 +62,25 @@ async def song_stream_generator(station: str):
                 res = await client.get(url, headers=HEADERS)
                 if res.status_code == 200:
                     data = res.json()
-                    if data and "updated" in data:
-                        l_param = data["updated"]
-                        payload = format_track_data(station, data)
-                        yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                    current_updated = data.get("updated")
+
+                    if data and current_updated:
+                        # Chỉ đẩy dữ liệu về client nếu timestamp khác bài hát trước
+                        if current_updated != last_updated:
+                            l_param = current_updated
+                            last_updated = current_updated
+                            payload = format_track_data(station, data)
+                            yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                        else:
+                            await asyncio.sleep(2)
                     else:
                         await asyncio.sleep(3)
                 else:
                     await asyncio.sleep(5)
+
             except httpx.ReadTimeout:
-                # Timeout long-polling từ phía nguồn, tự động gửi lại request
+                # Gửi heartbeat keep-alive để giữ kết nối SSE không bị đứt
+                yield ": keepalive\n\n"
                 continue
             except Exception as e:
                 error_payload = {"success": False, "error": str(e)}
