@@ -1,5 +1,8 @@
-import time
+import os
 import requests
+from fastapi import FastAPI
+
+app = FastAPI()
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -8,36 +11,32 @@ HEADERS = {
     "Accept": "application/json, text/javascript, */*; q=0.01",
 }
 
-def fetch_current_song(station_alias="au.cherry"):
-    url = f"https://scraper2.onlineradiobox.com/{station_alias}?l=0"
+@app.get("/")
+def home():
+    return {"message": "API đang chạy! Truy cập /now-playing để lấy tên bài hát."}
+
+@app.get("/now-playing")
+def get_now_playing(station: str = "au.cherry"):
+    url = f"https://scraper2.onlineradiobox.com/{station}?l=0"
     try:
         res = requests.get(url, headers=HEADERS, timeout=10)
         if res.status_code == 200:
-            return res.json()
+            data = res.json()
+            return {
+                "success": True,
+                "station": station,
+                "title": data.get("title"),
+                "artist": data.get("iArtist"),
+                "song": data.get("iName"),
+                "image": data.get("iImg"),
+                "trackId": data.get("trackId")
+            }
     except Exception as e:
-        print(f"Lỗi kết nối: {e}")
-    return None
-
-def monitor_station(station_alias="au.cherry", interval_seconds=10):
-    last_track_id = None
-    print(f"Bắt đầu theo dõi kênh: {station_alias}...")
-
-    while True:
-        data = fetch_current_song(station_alias)
-        if data:
-            current_track_id = data.get("trackId")
-            
-            # Chỉ thông báo khi đổi sang bài hát mới
-            if current_track_id != last_track_id:
-                last_track_id = current_track_id
-                print("=" * 50)
-                print(f"🎵 BÀI HÁT ĐANG PHÁT: {data.get('title')}")
-                print(f"🎤 Ca sĩ: {data.get('iArtist')}")
-                print(f"🎼 Tên bài: {data.get('iName')}")
-                print(f"🖼️  Ảnh bìa: {data.get('iImg')}")
-                print("=" * 50)
-        
-        time.sleep(interval_seconds)
+        return {"success": False, "error": str(e)}
+    
+    return {"success": False, "error": "Không lấy được dữ liệu"}
 
 if __name__ == "__main__":
-    monitor_station("au.cherry", interval_seconds=10)
+    import uvicorn
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
