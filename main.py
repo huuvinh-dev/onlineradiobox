@@ -14,6 +14,9 @@ HEADERS = {
     "Accept": "application/json, text/javascript, */*; q=0.01",
 }
 
+# Cấu hình timeout: 200s đọc dữ liệu (~3.3 phút) để khớp với trình duyệt
+LONG_POLL_TIMEOUT = httpx.Timeout(200.0, connect=10.0)
+
 def format_track_data(station: str, data: dict) -> dict:
     return {
         "success": True,
@@ -36,7 +39,6 @@ def home():
         }
     }
 
-# 1. Endpoint lấy dữ liệu 1 lần
 @app.get("/now-playing")
 async def get_now_playing(station: str = "au.cherry", l: int = 0):
     url = f"https://scraper2.onlineradiobox.com/{station}?l={l}"
@@ -50,12 +52,12 @@ async def get_now_playing(station: str = "au.cherry", l: int = 0):
             
     return {"success": False, "error": "Không lấy được dữ liệu"}
 
-# 2. Generator phát stream SSE liên tục
 async def song_stream_generator(station: str):
     l_param = 0
-    last_updated = None  # Lưu vết timestamp để lọc trùng bài hát
+    last_updated = None
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    # Sử dụng LONG_POLL_TIMEOUT (200s) để giữ kết nối lâu y như trình duyệt
+    async with httpx.AsyncClient(timeout=LONG_POLL_TIMEOUT) as client:
         while True:
             url = f"https://scraper2.onlineradiobox.com/{station}?l={l_param}"
             try:
@@ -65,7 +67,7 @@ async def song_stream_generator(station: str):
                     current_updated = data.get("updated")
 
                     if data and current_updated:
-                        # Chỉ đẩy dữ liệu về client nếu timestamp khác bài hát trước
+                        # Chỉ phát dữ liệu khi có timestamp bài hát mới
                         if current_updated != last_updated:
                             l_param = current_updated
                             last_updated = current_updated
@@ -79,15 +81,13 @@ async def song_stream_generator(station: str):
                     await asyncio.sleep(5)
 
             except httpx.ReadTimeout:
-                # Gửi heartbeat keep-alive để giữ kết nối SSE không bị đứt
+                # Nếu server treo kết nối hết 200s chưa đổi bài, gửi tín hiệu giữ kết nối cho Client
                 yield ": keepalive\n\n"
-                continue
             except Exception as e:
                 error_payload = {"success": False, "error": str(e)}
                 yield f"data: {json.dumps(error_payload, ensure_ascii=False)}\n\n"
                 await asyncio.sleep(5)
 
-# Endpoint phát stream liên tục
 @app.get("/now-playing/stream")
 async def stream_now_playing(station: str = "au.cherry"):
     return StreamingResponse(
